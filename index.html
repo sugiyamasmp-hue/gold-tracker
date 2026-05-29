@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚜️ Gold Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Noto+Serif+JP:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #d4a017;
+      --gold-light: #ffd700;
+      --gold-pale: #f5e6a3;
+      --bg: #0a0800;
+      --bg2: #120f02;
+      --card: rgba(255,215,0,0.05);
+      --border: rgba(255,200,50,0.2);
+      --text: #f0e6c8;
+      --text-dim: rgba(240,230,200,0.5);
+      --up: #00e676;
+      --down: #ff5252;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Serif JP', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse at 20% 20%, rgba(212,160,23,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(212,160,23,0.05) 0%, transparent 60%);
+    }
+    .app { max-width: 480px; margin: 0 auto; padding: 24px 16px 80px; }
+
+    /* Header */
+    .header { text-align: center; margin-bottom: 32px; }
+    .header-icon { font-size: 40px; display: block; margin-bottom: 8px; }
+    .header h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 32px; font-weight: 300; letter-spacing: 0.3em;
+      color: var(--gold-light); text-transform: uppercase;
+    }
+    .header p { color: var(--text-dim); font-size: 12px; letter-spacing: 0.15em; margin-top: 6px; }
+
+    /* Card */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      backdrop-filter: blur(10px);
+    }
+    .card-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 14px; letter-spacing: 0.2em;
+      color: var(--gold); text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    /* Price Display */
+    .price-main { font-family: 'Cormorant Garamond', serif; font-size: 42px; font-weight: 600; color: var(--gold-light); line-height: 1; }
+    .price-unit { font-size: 14px; color: var(--text-dim); margin-left: 4px; }
+    .price-updated { font-size: 11px; color: rgba(240,230,200,0.3); margin-top: 6px; }
+    .price-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,200,50,0.08); }
+    .price-row:last-child { border-bottom: none; }
+    .price-label { font-size: 13px; color: var(--text-dim); }
+
+    /* Badges */
+    .badge { display: inline-flex; align-items: center; gap: 3px; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+    .badge.up { background: rgba(0,230,118,0.15); color: var(--up); border: 1px solid rgba(0,230,118,0.3); }
+    .badge.down { background: rgba(255,82,82,0.15); color: var(--down); border: 1px solid rgba(255,82,82,0.3); }
+    .badge.neutral { background: rgba(200,200,200,0.1); color: #888; border: 1px solid rgba(200,200,200,0.2); }
+
+    /* Summary Grid */
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .summary-item { background: rgba(255,215,0,0.04); border-radius: 10px; padding: 12px; }
+    .summary-item .label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+    .summary-item .value { font-family: 'Cormorant Garamond', serif; font-size: 22px; color: var(--text); }
+    .summary-item .value.gold { color: var(--gold-light); }
+    .summary-item .value.up { color: var(--up); }
+    .summary-item .value.down { color: var(--down); }
+
+    /* Holdings */
+    .holding-item {
+      background: rgba(255,215,0,0.03);
+      border: 1px solid rgba(255,200,50,0.12);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+    }
+    .holding-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .holding-name { font-size: 15px; font-weight: 600; }
+    .holding-date { font-size: 11px; color: var(--text-dim); }
+    .holding-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .holding-cell .label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+    .holding-cell .val { font-size: 13px; margin-top: 2px; }
+    .holding-pnl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,200,50,0.08); }
+
+    /* Chart */
+    .chart-wrap { position: relative; height: 140px; margin-top: 8px; }
+    canvas#priceChart { width: 100% !important; height: 140px !important; }
+
+    /* Buttons */
+    .btn { border: none; cursor: pointer; border-radius: 10px; padding: 12px 20px; font-family: 'Noto Serif JP', serif; font-size: 14px; transition: all 0.2s; }
+    .btn-gold { background: linear-gradient(135deg, var(--gold), var(--gold-light)); color: #1a0f00; font-weight: 700; }
+    .btn-gold:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(255,215,0,0.35); }
+    .btn-gold:active { transform: translateY(0); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--gold); }
+    .btn-outline:hover { background: rgba(255,215,0,0.08); }
+    .btn-danger { background: rgba(255,82,82,0.15); border: 1px solid rgba(255,82,82,0.3); color: var(--down); padding: 5px 12px; font-size: 12px; border-radius: 8px; }
+    .btn-sm { padding: 6px 14px; font-size: 12px; }
+    .btn-block { width: 100%; }
+    .btn-row { display: flex; gap: 10px; }
+
+    /* Form */
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 11px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+    .form-group input {
+      width: 100%; background: rgba(255,215,0,0.06);
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); padding: 12px 14px;
+      font-family: 'Noto Serif JP', serif; font-size: 14px; outline: none;
+    }
+    .form-group input:focus { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,215,0,0.12); }
+    .form-group input::placeholder { color: rgba(240,230,200,0.3); }
+
+    /* Tabs */
+    .tab-bar { display: flex; background: rgba(255,215,0,0.04); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
+    .tab { flex: 1; text-align: center; padding: 10px; font-size: 13px; border-radius: 9px; cursor: pointer; color: var(--text-dim); transition: all 0.2s; }
+    .tab.active { background: rgba(255,215,0,0.12); color: var(--gold-light); font-weight: 600; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 40px; color: var(--text-dim); }
+    .spin { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Empty */
+    .empty { text-align: center; padding: 32px 16px; color: var(--text-dim); font-size: 14px; line-height: 1.8; }
+
+    /* Error */
+    .error-msg { color: var(--down); font-size: 12px; margin-top: 6px; }
+
+    /* Refresh btn */
+    .price-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+    /* Fade in */
+    .fade-in { animation: fadeIn 0.4s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: rgba(30,25,5,0.95); border: 1px solid var(--border);
+      color: var(--gold-light); padding: 12px 24px; border-radius: 30px;
+      font-size: 13px; transition: transform 0.3s; z-index: 999;
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <span class="header-icon">⚜️</span>
+    <h1>Gold Tracker</h1>
+    <p>金資産ポートフォリオ管理</p>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('dashboard')">ダッシュボード</div>
+    <div class="tab" onclick="switchTab('holdings')">保有明細</div>
+    <div class="tab" onclick="switchTab('chart')">チャート</div>
+  </div>
+
+  <!-- Dashboard Tab -->
+  <div id="tab-dashboard">
+    <!-- Current Price -->
+    <div class="card fade-in">
+      <div class="price-header">
+        <div class="card-title">現在の金価格</div>
+        <button class="btn btn-outline btn-sm" onclick="refreshPrice()" id="refreshBtn">🔄 更新</button>
+      </div>
+      <div id="priceDisplay">
+        <div class="loading"><span class="spin">⏳</span> 取得中...</div>
+      </div>
+      <hr>
+      <div id="changeDisplay">
+        <div class="price-row"><span class="price-label">前日比</span><span id="change1d" class="badge neutral">—</span></div>
+        <div class="price-row"><span class="price-label">1週間比</span><span id="change7d" class="badge neutral">—</span></div>
+        <div class="price-row"><span class="price-label">1ヶ月比</span><span id="change30d" class="badge neutral">—</span></div>
+      </div>
+    </div>
+
+    <!-- Portfolio Summary -->
+    <div class="card fade-in" id="summaryCard" style="display:none">
+      <div class="card-title">ポートフォリオ合計</div>
+      <div class="summary-grid" id="summaryGrid"></div>
+    </div>
+
+    <!-- Add Button -->
+    <div style="text-align:center;margin-top:8px">
+      <button class="btn btn-gold" onclick="switchTab('holdings'); showForm()">＋ 購入記録を追加</button>
+    </div>
+  </div>
+
+  <!-- Holdings Tab -->
+  <div id="tab-holdings" style="display:none">
+    <div class="card fade-in" id="addFormCard" style="display:none">
+      <div class="card-title">購入記録を追加</div>
+      <div class="form-group">
+        <label>名称</label>
+        <input type="text" id="f-label" placeholder="例：田中貴金属 純金積立">
+      </div>
+      <div class="form-group">
+        <label>グラム数</label>
+        <input type="number" id="f-grams" placeholder="例：10.5" step="0.01">
+      </div>
+      <div class="form-group">
+        <label>購入単価（円/g）</label>
+        <input type="number" id="f-price" placeholder="例：12000">
+      </div>
+      <div class="form-group">
+        <label>購入日</label>
+        <input type="date" id="f-date">
+      </div>
+      <div id="formError" class="error-msg" style="display:none"></div>
+      <div class="btn-row" style="margin-top:4px">
+        <button class="btn btn-gold" style="flex:1" onclick="addHolding()">追加する</button>
+        <button class="btn btn-outline" onclick="hideForm()">キャンセル</button>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-bottom:16px" id="addBtnWrap">
+      <button class="btn btn-gold" onclick="showForm()">＋ 購入記録を追加</button>
+    </div>
+
+    <div id="holdingsList"></div>
+  </div>
+
+  <!-- Chart Tab -->
+  <div id="tab-chart" style="display:none">
+    <div class="card fade-in">
+      <div class="card-title">金価格推移</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button class="btn btn-outline btn-sm" onclick="renderChart(7)" id="c7">7日</button>
+        <button class="btn btn-gold btn-sm" onclick="renderChart(30)" id="c30">30日</button>
+        <button class="btn btn-outline btn-sm" onclick="renderChart(90)" id="c90">90日</button>
+        <button class="btn btn-outline btn-sm" onclick="renderChart(365)" id="c365">1年</button>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+    <div class="card fade-in" id="evalChartCard" style="display:none">
+      <div class="card-title">評価額推移</div>
+      <div class="chart-wrap">
+        <canvas id="evalChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBDilueP7mXRMmy7pS8bHWkQRbwCkbcagw",
+    authDomain: "aid-learning.firebaseapp.com",
+    projectId: "aid-learning",
+    storageBucket: "aid-learning.firebasestorage.app",
+    messagingSenderId: "164950010760",
+    appId: "1:164950010760:web:bae9feb51fbfe7bd67683d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // ---- State ----
+  let holdings = [];
+  let priceHistory = []; // [{date, price}]
+  let currentPrice = null;
+  let chartInstance = null;
+  let evalChartInstance = null;
+  let currentChartDays = 30;
+
+  // ---- Init ----
+  window.addEventListener('DOMContentLoaded', async () => {
+    await loadHoldings();
+    await loadPriceHistory();
+    renderDashboard();
+    renderHoldingsList();
+    renderChart(30);
+  });
+
+  // ---- Firebase: Holdings ----
+  async function loadHoldings() {
+    try {
+      const q = query(collection(db, 'gold_holdings'), orderBy('date', 'desc'));
+      const snap = await getDocs(q);
+      holdings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch(e) { console.error(e); }
+  }
+
+  window.addHolding = async function() {
+    const label = document.getElementById('f-label').value.trim() || '金';
+    const grams = parseFloat(document.getElementById('f-grams').value);
+    const price = parseFloat(document.getElementById('f-price').value);
+    const date = document.getElementById('f-date').value;
+    const errEl = document.getElementById('formError');
+
+    if (!grams || !price) {
+      errEl.textContent = 'グラム数と購入単価を入力してください';
+      errEl.style.display = 'block'; return;
+    }
+    errEl.style.display = 'none';
+
+    try {
+      const docRef = await addDoc(collection(db, 'gold_holdings'), { label, grams, buyPrice: price, date: date || new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() });
+      holdings.unshift({ id: docRef.id, label, grams, buyPrice: price, date: date || new Date().toISOString().split('T')[0] });
+      hideForm();
+      renderHoldingsList();
+      renderDashboard();
+      showToast('✅ 購入記録を追加しました');
+    } catch(e) { errEl.textContent = '保存に失敗しました: ' + e.message; errEl.style.display = 'block'; }
+  };
+
+  window.removeHolding = async function(id) {
+    if (!confirm('この記録を削除しますか？')) return;
+    try {
+      await deleteDoc(doc(db, 'gold_holdings', id));
+      holdings = holdings.filter(h => h.id !== id);
+      renderHoldingsList();
+      renderDashboard();
+      showToast('🗑️ 削除しました');
+    } catch(e) { showToast('削除に失敗しました'); }
+  };
+
+  // ---- Firebase: Price History ----
+  async function loadPriceHistory() {
+    try {
+      const q = query(collection(db, 'gold_prices'), orderBy('date', 'desc'));
+      const snap = await getDocs(q);
+      priceHistory = snap.docs.map(d => d.data()).sort((a,b) => a.date.localeCompare(b.date));
+      if (priceHistory.length > 0) {
+        currentPrice = priceHistory[priceHistory.length - 1].price;
+      }
+    } catch(e) { console.error(e); }
+  }
+
+  window.refreshPrice = async function() {
+    const btn = document.getElementById('refreshBtn');
+    btn.textContent = '⏳ 取得中...';
+    btn.disabled = true;
+    await loadPriceHistory();
+    renderDashboard();
+    renderChart(currentChartDays);
+    btn.textContent = '🔄 更新';
+    btn.disabled = false;
+    showToast('💰 価格を更新しました');
+  };
+
+  // ---- Render: Dashboard ----
+  function renderDashboard() {
+    // Current price
+    const priceEl = document.getElementById('priceDisplay');
+    if (currentPrice) {
+      priceEl.innerHTML = `
+        <div class="price-main">${fmt(currentPrice)}<span class="price-unit">円/g</span></div>
+        <div class="price-updated">最終更新: ${priceHistory.length > 0 ? priceHistory[priceHistory.length-1].date : '—'}</div>
+      `;
+    } else {
+      priceEl.innerHTML = `<div style="color:var(--text-dim);font-size:14px">価格データがありません<br><small>GitHub Actionsで自動取得されます</small></div>`;
+    }
+
+    // Changes
+    renderChange('change1d', 1);
+    renderChange('change7d', 7);
+    renderChange('change30d', 30);
+
+    // Summary
+    if (holdings.length > 0) {
+      const totalG = holdings.reduce((s,h) => s + h.grams, 0);
+      const totalCost = holdings.reduce((s,h) => s + h.grams * h.buyPrice, 0);
+      const totalVal = currentPrice ? totalG * currentPrice : null;
+      const pnl = totalVal != null ? totalVal - totalCost : null;
+      const pnlPct = pnl != null ? (pnl / totalCost * 100) : null;
+
+      document.getElementById('summaryCard').style.display = 'block';
+      document.getElementById('summaryGrid').innerHTML = `
+        <div class="summary-item"><div class="label">保有グラム数</div><div class="value gold">${totalG.toFixed(2)}g</div></div>
+        <div class="summary-item"><div class="label">取得コスト</div><div class="value">${fmt(totalCost)}</div></div>
+        <div class="summary-item"><div class="label">現在評価額</div><div class="value gold">${totalVal ? fmt(totalVal) : '—'}</div></div>
+        <div class="summary-item"><div class="label">損益</div>
+          <div class="value ${pnl == null ? '' : pnl >= 0 ? 'up' : 'down'}">
+            ${pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
+            ${pnlPct != null ? `<span style="font-size:13px;display:block">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</span>` : ''}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function renderChange(elId, days) {
+    const el = document.getElementById(elId);
+    if (!currentPrice || priceHistory.length === 0) return;
+    const target = new Date(); target.setDate(target.getDate() - days);
+    const targetStr = target.toISOString().split('T')[0];
+    const found = [...priceHistory].reverse().find(h => h.date <= targetStr);
+    if (!found) { el.className = 'badge neutral'; el.textContent = '—'; return; }
+    const pct = (currentPrice - found.price) / found.price * 100;
+    el.className = 'badge ' + (pct >= 0 ? 'up' : 'down');
+    el.textContent = (pct >= 0 ? '▲ +' : '▼ ') + Math.abs(pct).toFixed(2) + '%';
+  }
+
+  // ---- Render: Holdings ----
+  function renderHoldingsList() {
+    const el = document.getElementById('holdingsList');
+    if (holdings.length === 0) {
+      el.innerHTML = '<div class="empty">まだ購入記録がありません<br>上のボタンから追加してください</div>';
+      return;
+    }
+    el.innerHTML = holdings.map(h => {
+      const curVal = currentPrice ? h.grams * currentPrice : null;
+      const cost = h.grams * h.buyPrice;
+      const pnl = curVal != null ? curVal - cost : null;
+      const pnlPct = pnl != null ? (pnl / cost * 100) : null;
+      return `
+        <div class="holding-item fade-in">
+          <div class="holding-header">
+            <div><span class="holding-name">${h.label}</span></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="holding-date">${h.date}</span>
+              <button class="btn btn-danger" onclick="removeHolding('${h.id}')">削除</button>
+            </div>
+          </div>
+          <div class="holding-grid">
+            <div class="holding-cell"><div class="label">グラム数</div><div class="val">${h.grams.toFixed(2)}g</div></div>
+            <div class="holding-cell"><div class="label">購入単価</div><div class="val">${fmt(h.buyPrice)}/g</div></div>
+            <div class="holding-cell"><div class="label">取得コスト</div><div class="val">${fmt(cost)}</div></div>
+          </div>
+          <div class="holding-pnl">
+            <div class="holding-cell"><div class="label">現在評価額</div><div class="val" style="color:var(--gold-light)">${curVal ? fmt(curVal) : '—'}</div></div>
+            <div class="holding-cell"><div class="label">損益</div>
+              <div class="val ${pnl == null ? '' : pnl >= 0 ? '' : ''}" style="color:${pnl == null ? 'inherit' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}">
+                ${pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
+                ${pnlPct != null ? ` (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ---- Chart ----
+  window.renderChart = function(days) {
+    currentChartDays = days;
+    ['c7','c30','c90','c365'].forEach(id => {
+      document.getElementById(id).className = 'btn btn-outline btn-sm';
+    });
+    document.getElementById('c' + days).className = 'btn btn-gold btn-sm';
+
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const filtered = priceHistory.filter(h => h.date >= cutoffStr);
+
+    if (filtered.length === 0) {
+      const ctx = document.getElementById('priceChart').getContext('2d');
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.fillStyle = 'rgba(240,230,200,0.3)';
+      ctx.font = '14px Noto Serif JP';
+      ctx.textAlign = 'center';
+      ctx.fillText('データがまだありません', ctx.canvas.width/2, 70);
+      return;
+    }
+
+    const labels = filtered.map(h => h.date.slice(5));
+    const prices = filtered.map(h => h.price);
+    const min = Math.min(...prices) * 0.998;
+    const max = Math.max(...prices) * 1.002;
+
+    if (chartInstance) chartInstance.destroy();
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 140);
+    grad.addColorStop(0, 'rgba(255,215,0,0.3)');
+    grad.addColorStop(1, 'rgba(255,215,0,0)');
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: prices,
+          borderColor: '#ffd700',
+          borderWidth: 2,
+          backgroundColor: grad,
+          fill: true,
+          tension: 0.3,
+          pointRadius: filtered.length > 60 ? 0 : 3,
+          pointBackgroundColor: '#ffd700'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          backgroundColor: 'rgba(20,15,2,0.95)',
+          borderColor: 'rgba(255,215,0,0.3)', borderWidth: 1,
+          titleColor: '#ffd700', bodyColor: '#f0e6c8',
+          callbacks: { label: ctx => '¥' + ctx.raw.toLocaleString() + '/g' }
+        }},
+        scales: {
+          x: { ticks: { color: 'rgba(240,230,200,0.4)', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: 'rgba(255,215,0,0.05)' } },
+          y: { min, max, ticks: { color: 'rgba(240,230,200,0.4)', font: { size: 10 }, callback: v => '¥' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,215,0,0.05)' } }
+        }
+      }
+    });
+
+    // Eval chart
+    if (holdings.length > 0) {
+      document.getElementById('evalChartCard').style.display = 'block';
+      const totalG = holdings.reduce((s,h) => s + h.grams, 0);
+      const evalPrices = prices.map(p => p * totalG);
+      if (evalChartInstance) evalChartInstance.destroy();
+      const ctx2 = document.getElementById('evalChart').getContext('2d');
+      const grad2 = ctx2.createLinearGradient(0, 0, 0, 140);
+      grad2.addColorStop(0, 'rgba(0,230,118,0.25)');
+      grad2.addColorStop(1, 'rgba(0,230,118,0)');
+      evalChartInstance = new Chart(ctx2, {
+        type: 'line',
+        data: { labels, datasets: [{ data: evalPrices, borderColor: '#00e676', borderWidth: 2, backgroundColor: grad2, fill: true, tension: 0.3, pointRadius: filtered.length > 60 ? 0 : 3, pointBackgroundColor: '#00e676' }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(20,15,2,0.95)', borderColor: 'rgba(0,230,118,0.3)', borderWidth: 1, titleColor: '#00e676', bodyColor: '#f0e6c8', callbacks: { label: ctx => '¥' + Math.round(ctx.raw).toLocaleString() } } },
+          scales: { x: { ticks: { color: 'rgba(240,230,200,0.4)', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: 'rgba(0,230,118,0.04)' } }, y: { ticks: { color: 'rgba(240,230,200,0.4)', font: { size: 10 }, callback: v => '¥' + (v/10000).toFixed(0) + '万' }, grid: { color: 'rgba(0,230,118,0.04)' } } }
+        }
+      });
+    }
+  };
+
+  // ---- Tabs ----
+  window.switchTab = function(tab) {
+    ['dashboard','holdings','chart'].forEach(t => {
+      document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('.tab').forEach((el, i) => {
+      el.className = 'tab' + (['dashboard','holdings','chart'][i] === tab ? ' active' : '');
+    });
+    if (tab === 'chart') renderChart(currentChartDays);
+  };
+
+  window.showForm = function() {
+    document.getElementById('addFormCard').style.display = 'block';
+    document.getElementById('addBtnWrap').style.display = 'none';
+    document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+  };
+  window.hideForm = function() {
+    document.getElementById('addFormCard').style.display = 'none';
+    document.getElementById('addBtnWrap').style.display = 'block';
+    ['f-label','f-grams','f-price'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('formError').style.display = 'none';
+  };
+
+  // ---- Utils ----
+  function fmt(n) { return n == null ? '—' : '¥' + Math.round(n).toLocaleString('ja-JP'); }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</body>
+</html>
