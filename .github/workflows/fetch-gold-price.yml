@@ -1,1 +1,96 @@
+name: Fetch Gold Price Daily
 
+on:
+  schedule:
+    - cron: '0 23 * * *'  # 毎朝8時JST（UTC 23時）
+  workflow_dispatch:       # 手動実行も可能
+
+jobs:
+  fetch-price:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch gold price and save to Firestore
+        run: |
+          node -e "
+          const https = require('https');
+
+          // 田中貴金属の金価格ページからスクレイピング
+          function fetchGoldPrice() {
+            return new Promise((resolve, reject) => {
+              const options = {
+                hostname: 'gold.tanaka.co.jp',
+                path: '/commodity/souba/',
+                method: 'GET',
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+              };
+              https.get(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  // 価格パターンを抽出（例：12,345円）
+                  const match = data.match(/([0-9,]+)<\/td>[\s\S]*?円.*?\/g/);
+                  if (match) {
+                    const price = parseInt(match[1].replace(/,/g, ''));
+                    if (price > 1000 && price < 100000) resolve(price);
+                    else reject('Invalid price: ' + price);
+                  } else {
+                    // フォールバック：別パターン
+                    const match2 = data.match(/(\d{4,6})[円]/);
+                    if (match2) resolve(parseInt(match2[1]));
+                    else reject('Price not found');
+                  }
+                });
+              }).on('error', reject);
+            });
+          }
+
+          // Firestore REST API で保存
+          async function saveToFirestore(price) {
+            const today = new Date().toISOString().split('T')[0];
+            const projectId = '${{ secrets.FIREBASE_PROJECT_ID }}';
+            const url = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)/documents/gold_prices/' + today;
+
+            const body = JSON.stringify({
+              fields: {
+                date: { stringValue: today },
+                price: { integerValue: price.toString() },
+                source: { stringValue: 'tanaka_kikinzoku' },
+                fetchedAt: { stringValue: new Date().toISOString() }
+              }
+            });
+
+            return new Promise((resolve, reject) => {
+              const urlObj = new URL(url);
+              const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname + '?key=' + '${{ secrets.FIREBASE_API_KEY }}',
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+              };
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  if (res.statusCode === 200) { console.log('Saved:', JSON.parse(data)); resolve(); }
+                  else reject('HTTP ' + res.statusCode + ': ' + data);
+                });
+              });
+              req.on('error', reject);
+              req.write(body);
+              req.end();
+            });
+          }
+
+          (async () => {
+            try {
+              console.log('Fetching gold price...');
+              const price = await fetchGoldPrice();
+              console.log('Gold price today:', price, 'JPY/g');
+              await saveToFirestore(price);
+              console.log('Done!');
+            } catch(e) {
+              console.error('Error:', e);
+              process.exit(1);
+            }
+          })();
+          "
