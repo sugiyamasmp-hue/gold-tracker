@@ -30,12 +30,12 @@ jobs:
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
-                  const goldSection = data.match(/金地金[\s\S]*?<\/tr>/);
-                  if (!goldSection) return reject('Gold section not found');
-                  const priceMatch = goldSection[0].match(/([0-9,]+)\s*円/);
+                  const goldRow = data.match(/<td[^>]*class="metal_name"[^>]*>金<\/td>[\s\S]*?<\/tr>/);
+                  if (!goldRow) return reject('Gold price row not found');
+                  const priceMatch = goldRow[0].match(/class="retail_tax"[^>]*>([0-9,]+)\s*円/);
                   if (priceMatch) {
                     const price = parseInt(priceMatch[1].replace(/,/g, ''));
-                    if (price > 1000 && price < 100000) return resolve(price);
+                    if (price > 1000 && price < 999999) return resolve(price);
                     else return reject('Invalid price: ' + price);
                   }
                   reject('Price not found');
