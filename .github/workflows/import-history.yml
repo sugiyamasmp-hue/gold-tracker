@@ -18,67 +18,60 @@ jobs:
           const projectId = process.env.FIREBASE_PROJECT_ID;
           const apiKey = process.env.FIREBASE_API_KEY;
 
-          function fetchPriceForDate(year, month) {
+          function fetchYearData(year) {
             return new Promise((resolve) => {
-              const monthStr = ('0' + month).slice(-2);
-              const path = '/commodity/souba/y' + year + monthStr + '.html';
               const options = {
                 hostname: 'gold.tanaka.co.jp',
-                path: path,
+                path: '/commodity/souba/d-archive-gold.php?year=' + year,
                 method: 'GET',
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' }
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
               };
               https.get(options, (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
-                  console.log('Status:', res.statusCode, 'Size:', data.length, 'bytes');
-                  if (data.length < 100) { resolve([]); return; }
-                  
+                  console.log('Year ' + year + ' status:', res.statusCode, 'size:', data.length);
                   const rows = [];
-                  
-                  // パターン1: <td>数字</td> の形式
-                  const tdMatches = data.match(/<td[^>]*>(\d{1,2})<\/td>[\s\S]{0,500}?(\d{2},\d{3})/g);
-                  if (tdMatches && tdMatches.length > 0) {
-                    console.log('Pattern1 matches:', tdMatches.length);
-                    for (const m of tdMatches) {
-                      const dayM = m.match(/<td[^>]*>(\d{1,2})<\/td>/);
-                      const priceM = m.match(/(\d{2},\d{3})/);
-                      if (dayM && priceM) {
-                        const day = parseInt(dayM[1]);
-                        const price = parseInt(priceM[1].replace(',', ''));
-                        if (day >= 1 && day <= 31 && price > 1000 && price < 200000) {
-                          const dateStr = year + '-' + monthStr + '-' + ('0' + day).slice(-2);
+
+                  // テーブルの行を解析: | 1日 | 10,665 | 10,694 | ... |
+                  // 各行は日付(1〜31日)、各列は月(1〜12月)
+                  const tableMatch = data.match(/<table[\s\S]*?<\/table>/i);
+                  if (!tableMatch) { console.log('No table found'); resolve([]); return; }
+
+                  const table = tableMatch[0];
+                  const trMatches = table.match(/<tr[\s\S]*?<\/tr>/gi);
+                  if (!trMatches) { resolve([]); return; }
+
+                  for (const tr of trMatches) {
+                    // 日付セルを取得 (例: 1日, 2日, ...)
+                    const dayMatch = tr.match(/>(\d{1,2})日</);
+                    if (!dayMatch) continue;
+                    const day = parseInt(dayMatch[1]);
+
+                    // 各tdの価格を取得
+                    const tdMatches = tr.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
+                    if (!tdMatches) continue;
+
+                    let monthIndex = 0;
+                    for (const td of tdMatches) {
+                      const text = td.replace(/<[^>]+>/g, '').trim();
+                      const priceMatch = text.match(/^(\d{1,3}),(\d{3})$/);
+                      if (priceMatch) {
+                        const price = parseInt(priceMatch[1] + priceMatch[2]);
+                        const month = monthIndex + 1;
+                        if (price > 1000 && price < 200000 && month >= 1 && month <= 12) {
+                          const dateStr = year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2);
                           rows.push({ date: dateStr, price });
                         }
+                        monthIndex++;
+                      } else if (text === '-' || text === '') {
+                        monthIndex++;
                       }
                     }
                   }
-                  
-                  // パターン2: 数字のみの価格を幅広く探す
-                  if (rows.length === 0) {
-                    const allPrices = data.match(/\b([1-9]\d{4,5})\b/g);
-                    if (allPrices) {
-                      console.log('Pattern2 raw prices found:', allPrices.slice(0, 5));
-                    }
-                    
-                    // カンマ区切り価格
-                    const commaprices = [...data.matchAll(/(\d{1,3}),(\d{3})/g)];
-                    for (const m of commaprices) {
-                      const price = parseInt(m[1] + m[2]);
-                      if (price > 5000 && price < 200000) {
-                        console.log('Comma price found:', price);
-                        break;
-                      }
-                    }
-                  }
-                  
-                  // パターン3: HTMLをダンプして確認
-                  if (rows.length === 0) {
-                    const snippet = data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 500);
-                    console.log('HTML snippet:', snippet);
-                  }
-                  
+
+                  console.log('Year ' + year + ': found ' + rows.length + ' records');
+                  if (rows.length > 0) console.log('Sample:', rows[0]);
                   resolve(rows);
                 });
               }).on('error', (e) => { console.log('Error:', e.message); resolve([]); });
@@ -111,31 +104,18 @@ jobs:
 
           (async () => {
             console.log('Starting import...');
-            // まず最新月だけテスト
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth() + 1;
-            console.log('Testing with ' + year + '/' + month);
-            const rows = await fetchPriceForDate(year, month);
-            console.log('Test result:', rows.length, 'records');
-            if (rows.length > 0) console.log('Sample:', rows[0]);
-            
-            // 全期間実行
             const years = [2023, 2024, 2025, 2026];
             let total = 0, success = 0;
-            for (const y of years) {
-              for (let m = 1; m <= 12; m++) {
-                if (new Date(y, m - 1) > new Date()) break;
-                const r = await fetchPriceForDate(y, m);
-                console.log(y + '/' + m + ': ' + r.length + ' records');
-                for (const row of r) {
-                  const ok = await saveToFirestore(row.date, row.price);
-                  if (ok) success++;
-                  total++;
-                  await sleep(100);
-                }
-                await sleep(300);
+
+            for (const year of years) {
+              const rows = await fetchYearData(year);
+              for (const row of rows) {
+                const ok = await saveToFirestore(row.date, row.price);
+                if (ok) success++;
+                total++;
+                await sleep(80);
               }
+              await sleep(500);
             }
             console.log('Done: ' + success + '/' + total + ' saved');
           })();
