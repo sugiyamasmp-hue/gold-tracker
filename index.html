@@ -178,7 +178,10 @@
     <!-- Current Price -->
     <div class="card fade-in">
       <div class="price-header">
-        <div class="card-title">現在の金価格</div>
+        <div>
+          <div class="card-title">現在の金価格</div>
+          <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.08em;margin-top:-8px;margin-bottom:6px">田中貴金属 買取価格</div>
+        </div>
         <button class="btn btn-outline btn-sm" onclick="refreshPrice()" id="refreshBtn">🔄 更新</button>
       </div>
       <div id="priceDisplay">
@@ -369,12 +372,13 @@
     // Current price
     const priceEl = document.getElementById('priceDisplay');
     if (currentPrice) {
+      const latest = priceHistory[priceHistory.length - 1];
       priceEl.innerHTML = `
         <div class="price-main">${fmt(currentPrice)}<span class="price-unit">円/g</span></div>
-        <div class="price-updated">最終更新: ${priceHistory.length > 0 ? priceHistory[priceHistory.length-1].date : '—'}</div>
+        <div class="price-updated">更新日: ${latest ? latest.date : '—'} &nbsp;|&nbsp; 出典: 田中貴金属 買取価格</div>
       `;
     } else {
-      priceEl.innerHTML = `<div style="color:var(--text-dim);font-size:14px">価格データがありません<br><small>GitHub Actionsで自動取得されます</small></div>`;
+      priceEl.innerHTML = `<div style="color:var(--text-dim);font-size:14px">価格データがありません<br><small>GitHub Actionsで毎朝9時（JST）自動取得されます</small></div>`;
     }
 
     // Changes

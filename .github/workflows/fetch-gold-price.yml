@@ -2,7 +2,7 @@ name: Fetch Gold Price Daily
 
 "on":
   schedule:
-    - cron: '0 23 * * *'
+    - cron: '0 0 * * *'  # 毎朝9時（日本時間 JST = UTC+9）
   workflow_dispatch:
 
 jobs:
@@ -12,35 +12,81 @@ jobs:
       FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
       FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
     steps:
-      - name: Fetch gold price and save to Firestore
+      - name: Fetch Tanaka kaitori price and save to Firestore
         run: |
           node -e "
           const https = require('https');
 
-          function fetchGoldPrice() {
+          // 田中貴金属 買取価格ページから金(24K)の1g買取単価を取得
+          function fetchKaitoriPrice() {
             return new Promise((resolve, reject) => {
               const options = {
                 hostname: 'gold.tanaka.co.jp',
-                path: '/commodity/souba/',
+                path: '/commodity/kaitori/',
                 method: 'GET',
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0',
+                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                  'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                  'Accept-Encoding': 'identity'
+                }
               };
+
               https.get(options, (res) => {
-                if (res.statusCode !== 200) return reject('HTTP ' + res.statusCode);
-                let data = '';
-                res.on('data', chunk => data += chunk);
+                if (res.statusCode === 301 || res.statusCode === 302) {
+                  return reject(new Error('Redirect: ' + res.headers.location));
+                }
+                if (res.statusCode !== 200) {
+                  return reject(new Error('HTTP ' + res.statusCode));
+                }
+
+                const chunks = [];
+                res.on('data', chunk => chunks.push(chunk));
                 res.on('end', () => {
-                  const goldRow = data.match(/<td[^>]*class="metal_name"[^>]*>金<\/td>[\s\S]*?<\/tr>/);
-                  if (!goldRow) return reject('Gold price row not found');
-                  const priceMatch = goldRow[0].match(/class="retail_tax"[^>]*>([0-9,]+)\s*円/);
-                  if (priceMatch) {
-                    const price = parseInt(priceMatch[1].replace(/,/g, ''));
-                    if (price > 1000 && price < 999999) return resolve(price);
-                    else return reject('Invalid price: ' + price);
+                  const html = Buffer.concat(chunks).toString('utf8');
+                  console.log('HTML length:', html.length);
+
+                  // パターン1: class=metal_name の金行から最初の妥当な数値を価格とする
+                  const goldRow = html.match(/<td[^>]*class=[\"']?[^>]*metal_name[^>\"']*[\"']?[^>]*>[^<]*金(?:地金)?[^<]*<\/td>[\s\S]*?<\/tr>/);
+                  if (goldRow) {
+                    const nums = goldRow[0].match(/([1-9][0-9]{3,5}(?:,[0-9]{3})*)/g) || [];
+                    for (const n of nums) {
+                      const price = parseInt(n.replace(/,/g, ''));
+                      if (price >= 5000 && price <= 999999) {
+                        console.log('Pattern1 matched:', price);
+                        return resolve(price);
+                      }
+                    }
                   }
-                  reject('Price not found');
+
+                  // パターン2: tr行テキストで「金」含み他の金属名を含まない行を探す
+                  const rows = html.match(/<tr[\s\S]*?<\/tr>/g) || [];
+                  for (const row of rows) {
+                    const text = row.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (/(?:^|\s)金(?:\s|$|地金|24)/.test(text) &&
+                        !/プラチナ|パラジウム|銀|ルテニウム|イリジウム/.test(text)) {
+                      const nums = text.match(/([1-9][0-9]{3,5}(?:,[0-9]{3})*)/g) || [];
+                      for (const n of nums) {
+                        const price = parseInt(n.replace(/,/g, ''));
+                        if (price >= 5000 && price <= 999999) {
+                          console.log('Pattern2 matched:', price, '| row:', text.slice(0, 100));
+                          return resolve(price);
+                        }
+                      }
+                    }
+                  }
+
+                  // デバッグ: ページテキストを出力して原因特定を支援
+                  const textOnly = html
+                    .replace(/<style[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script[\s\S]*?<\/script>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  console.error('Page text (debug):', textOnly.slice(0, 3000));
+                  reject(new Error('金の買取価格が見つかりませんでした'));
                 });
-              }).on('error', reject);
+              }).on('error', (err) => reject(err));
             });
           }
 
@@ -48,22 +94,33 @@ jobs:
             const today = new Date().toISOString().split('T')[0];
             const projectId = process.env.FIREBASE_PROJECT_ID;
             const apiKey = process.env.FIREBASE_API_KEY;
-            const url = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)/documents/gold_prices/' + today + '?key=' + apiKey;
+            const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/gold_prices/' + today + '?key=' + apiKey;
             const body = JSON.stringify({
               fields: {
-                date: { stringValue: today },
-                price: { integerValue: price.toString() },
-                source: { stringValue: 'tanaka_kikinzoku' },
+                date:      { stringValue: today },
+                price:     { integerValue: price.toString() },
+                source:    { stringValue: 'tanaka_kaitori' },
                 fetchedAt: { stringValue: new Date().toISOString() }
               }
             });
             return new Promise((resolve, reject) => {
-              const req = https.request(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+              const req = https.request(url, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(body)
+                }
+              }, (res) => {
                 let d = '';
                 res.on('data', chunk => d += chunk);
                 res.on('end', () => {
-                  if (res.statusCode === 200) { console.log('Saved!'); resolve(); }
-                  else reject('Firestore HTTP ' + res.statusCode + ': ' + d);
+                  if (res.statusCode === 200) {
+                    console.log('Firestore saved:', today, price + '円/g');
+                    resolve();
+                  } else {
+                    reject(new Error('Firestore HTTP ' + res.statusCode + ': ' + d));
+                  }
                 });
               });
               req.on('error', reject);
@@ -74,13 +131,13 @@ jobs:
 
           (async () => {
             try {
-              console.log('Fetching gold price...');
-              const price = await fetchGoldPrice();
-              console.log('Price:', price, 'JPY/g');
+              console.log('田中貴金属 買取価格を取得中...');
+              const price = await fetchKaitoriPrice();
+              console.log('取得価格:', price, '円/g');
               await saveToFirestore(price);
-              console.log('Done!');
+              console.log('完了');
             } catch(e) {
-              console.error('Error:', e);
+              console.error('エラー:', e.message || String(e));
               process.exit(1);
             }
           })();
