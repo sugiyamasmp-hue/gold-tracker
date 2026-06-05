@@ -412,9 +412,10 @@
     const targetStr = target.toISOString().split('T')[0];
     const found = [...priceHistory].reverse().find(h => h.date <= targetStr);
     if (!found) { el.className = 'badge neutral'; el.textContent = '—'; return; }
-    const pct = (currentPrice - found.price) / found.price * 100;
+    const diff = currentPrice - found.price;
+    const pct = diff / found.price * 100;
     el.className = 'badge ' + (pct >= 0 ? 'up' : 'down');
-    el.textContent = (pct >= 0 ? '▲ +' : '▼ ') + Math.abs(pct).toFixed(2) + '%';
+    el.textContent = (pct >= 0 ? '▲ +' : '▼ ') + Math.abs(diff).toLocaleString('ja-JP') + '円 (' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
   }
 
   // ---- Render: Holdings ----

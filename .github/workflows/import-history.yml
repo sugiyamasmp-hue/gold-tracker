@@ -18,33 +18,63 @@ jobs:
           const projectId = process.env.FIREBASE_PROJECT_ID;
           const apiKey = process.env.FIREBASE_API_KEY;
 
-          function fetchPriceForDate(year, month) {
+          function fetchYearData(year) {
             return new Promise((resolve) => {
-              const path = '/commodity/souba/y' + year + ('0' + month).slice(-2) + '.html';
               const options = {
                 hostname: 'gold.tanaka.co.jp',
-                path: path,
+                path: '/commodity/souba/d-archive-gold.php?year=' + year,
                 method: 'GET',
-                headers: { 'User-Agent': 'Mozilla/5.0' }
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
               };
               https.get(options, (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
+                  console.log('Year ' + year + ' status:', res.statusCode, 'size:', data.length);
                   const rows = [];
-                  const regex = /(\d{1,2})日[\s\S]*?(\d{1,2},\d{3})/g;
-                  let match;
-                  while ((match = regex.exec(data)) !== null) {
-                    const day = parseInt(match[1]);
-                    const price = parseInt(match[2].replace(',', ''));
-                    if (price > 1000 && price < 100000) {
-                      const dateStr = year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2);
-                      rows.push({ date: dateStr, price });
+
+                  // テーブルの行を解析: | 1日 | 10,665 | 10,694 | ... |
+                  // 各行は日付(1〜31日)、各列は月(1〜12月)
+                  const tableMatch = data.match(/<table[\s\S]*?<\/table>/i);
+                  if (!tableMatch) { console.log('No table found'); resolve([]); return; }
+
+                  const table = tableMatch[0];
+                  const trMatches = table.match(/<tr[\s\S]*?<\/tr>/gi);
+                  if (!trMatches) { resolve([]); return; }
+
+                  for (const tr of trMatches) {
+                    // 日付セルを取得 (例: 1日, 2日, ...)
+                    const dayMatch = tr.match(/>(\d{1,2})日</);
+                    if (!dayMatch) continue;
+                    const day = parseInt(dayMatch[1]);
+
+                    // 各tdの価格を取得
+                    const tdMatches = tr.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
+                    if (!tdMatches) continue;
+
+                    let monthIndex = 0;
+                    for (const td of tdMatches) {
+                      const text = td.replace(/<[^>]+>/g, '').trim();
+                      const priceMatch = text.match(/^(\d{1,3}),(\d{3})$/);
+                      if (priceMatch) {
+                        const price = parseInt(priceMatch[1] + priceMatch[2]);
+                        const month = monthIndex + 1;
+                        if (price > 1000 && price < 200000 && month >= 1 && month <= 12) {
+                          const dateStr = year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2);
+                          rows.push({ date: dateStr, price });
+                        }
+                        monthIndex++;
+                      } else if (text === '-' || text === '') {
+                        monthIndex++;
+                      }
                     }
                   }
+
+                  console.log('Year ' + year + ': found ' + rows.length + ' records');
+                  if (rows.length > 0) console.log('Sample:', rows[0]);
                   resolve(rows);
                 });
-              }).on('error', () => resolve([]));
+              }).on('error', (e) => { console.log('Error:', e.message); resolve([]); });
             });
           }
 
@@ -54,7 +84,7 @@ jobs:
               fields: {
                 date: { stringValue: date },
                 price: { integerValue: price.toString() },
-                source: { stringValue: 'tanaka_kikinzoku_history' },
+                source: { stringValue: 'tanaka_history' },
                 fetchedAt: { stringValue: new Date().toISOString() }
               }
             });
@@ -74,24 +104,18 @@ jobs:
 
           (async () => {
             console.log('Starting import...');
-            console.log('Project ID:', projectId ? 'OK' : 'MISSING');
-            console.log('API Key:', apiKey ? 'OK' : 'MISSING');
             const years = [2023, 2024, 2025, 2026];
             let total = 0, success = 0;
+
             for (const year of years) {
-              for (let month = 1; month <= 12; month++) {
-                if (new Date(year, month - 1) > new Date()) break;
-                console.log('Fetching ' + year + '/' + month + '...');
-                const rows = await fetchPriceForDate(year, month);
-                console.log('Found ' + rows.length + ' records');
-                for (const row of rows) {
-                  const ok = await saveToFirestore(row.date, row.price);
-                  if (ok) success++;
-                  total++;
-                  await sleep(100);
-                }
-                await sleep(500);
+              const rows = await fetchYearData(year);
+              for (const row of rows) {
+                const ok = await saveToFirestore(row.date, row.price);
+                if (ok) success++;
+                total++;
+                await sleep(80);
               }
+              await sleep(500);
             }
             console.log('Done: ' + success + '/' + total + ' saved');
           })();
