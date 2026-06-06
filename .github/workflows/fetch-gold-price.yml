@@ -17,12 +17,13 @@ jobs:
           node -e "
           const https = require('https');
 
-          // 田中貴金属 買取価格ページから金(24K)の1g買取単価を取得
+          // 田中貴金属 貴金属価格情報ページから金の1g買取単価を取得
+          // /commodity/kaitori/ は廃止。現在は /commodity/souba/index.php に統合
           function fetchKaitoriPrice() {
             return new Promise((resolve, reject) => {
               const options = {
                 hostname: 'gold.tanaka.co.jp',
-                path: '/commodity/kaitori/',
+                path: '/commodity/souba/index.php',
                 method: 'GET',
                 headers: {
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0',
@@ -46,12 +47,28 @@ jobs:
                   const html = Buffer.concat(chunks).toString('utf8');
                   console.log('HTML length:', html.length);
 
-                  // パターン1: class=metal_name の金行から最初の妥当な数値を価格とする
-                  const goldRow = html.match(/<td[^>]*class=[\"']?[^>]*metal_name[^>\"']*[\"']?[^>]*>[^<]*金(?:地金)?[^<]*<\/td>[\s\S]*?<\/tr>/);
+                  // デバッグ: 価格テーブルのテキストを常時出力
+                  const priceTable = html.match(/<table[^>]*id=[\"']metal_price[\"'][^>]*>[\s\S]*?<\/table>/);
+                  if (priceTable) {
+                    const tableText = priceTable[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    console.log('Price table text:', tableText);
+                  } else {
+                    const textOnly = html
+                      .replace(/<style[\s\S]*?<\/style>/gi, '')
+                      .replace(/<script[\s\S]*?<\/script>/gi, '')
+                      .replace(/<[^>]+>/g, ' ')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+                    console.log('Page text (debug):', textOnly.slice(0, 3000));
+                  }
+
+                  // パターン1: <tr class="gold"> の <td class="purchase_tax"> から買取価格を取得
+                  // 例: <tr class="gold"><td class="purchase_tax">25,012 円</td>
+                  const goldRow = html.match(/<tr[^>]*class=[\"']gold[\"'][^>]*>([\s\S]*?)<\/tr>/);
                   if (goldRow) {
-                    const nums = goldRow[0].match(/([1-9][0-9]{3,5}(?:,[0-9]{3})*)/g) || [];
-                    for (const n of nums) {
-                      const price = parseInt(n.replace(/,/g, ''));
+                    const purchaseTd = goldRow[1].match(/<td[^>]*class=[\"']purchase_tax[\"'][^>]*>\s*([0-9,]+)\s*円/);
+                    if (purchaseTd) {
+                      const price = parseInt(purchaseTd[1].replace(/,/g, ''));
                       if (price >= 5000 && price <= 999999) {
                         console.log('Pattern1 matched:', price);
                         return resolve(price);
@@ -59,31 +76,19 @@ jobs:
                     }
                   }
 
-                  // パターン2: tr行テキストで「金」含み他の金属名を含まない行を探す
-                  const rows = html.match(/<tr[\s\S]*?<\/tr>/g) || [];
-                  for (const row of rows) {
-                    const text = row.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (/(?:^|\s)金(?:\s|$|地金|24)/.test(text) &&
-                        !/プラチナ|パラジウム|銀|ルテニウム|イリジウム/.test(text)) {
-                      const nums = text.match(/([1-9][0-9]{3,5}(?:,[0-9]{3})*)/g) || [];
-                      for (const n of nums) {
-                        const price = parseInt(n.replace(/,/g, ''));
-                        if (price >= 5000 && price <= 999999) {
-                          console.log('Pattern2 matched:', price, '| row:', text.slice(0, 100));
-                          return resolve(price);
-                        }
+                  // パターン2: purchase_tax セルを直接検索（フォールバック）
+                  const purchaseCells = html.match(/<td[^>]*class=[\"']purchase_tax[\"'][^>]*>\s*([0-9,]+)\s*円/g) || [];
+                  for (const cell of purchaseCells) {
+                    const m = cell.match(/([0-9,]+)\s*円/);
+                    if (m) {
+                      const price = parseInt(m[1].replace(/,/g, ''));
+                      if (price >= 5000 && price <= 999999) {
+                        console.log('Pattern2 matched:', price);
+                        return resolve(price);
                       }
                     }
                   }
 
-                  // デバッグ: ページテキストを出力して原因特定を支援
-                  const textOnly = html
-                    .replace(/<style[\s\S]*?<\/style>/gi, '')
-                    .replace(/<script[\s\S]*?<\/script>/gi, '')
-                    .replace(/<[^>]+>/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                  console.error('Page text (debug):', textOnly.slice(0, 3000));
                   reject(new Error('金の買取価格が見つかりませんでした'));
                 });
               }).on('error', (err) => reject(err));
