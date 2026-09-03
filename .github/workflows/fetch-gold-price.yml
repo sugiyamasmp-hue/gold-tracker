@@ -42,11 +42,12 @@ jobs:
             });
           }
 
-          // 田中貴金属 貴金属価格情報ページから金の1g買取単価を取得
+          // 田中貴金属 貴金属価格情報ページ（https://gold.tanaka.co.jp/commodity/souba/）から
+          // 金(24K)の1g買取単価を取得
           function fetchKaitoriPrice() {
             return httpsGet({
               hostname: 'gold.tanaka.co.jp',
-              path: '/commodity/souba/index.php',
+              path: '/commodity/souba/',
               method: 'GET',
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0',
